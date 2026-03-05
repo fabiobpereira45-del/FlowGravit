@@ -111,14 +111,50 @@ export async function createApp() {
 
     const logs: string[] = [];
     logs.push(`[${new Date().toISOString()}] Fluxo iniciado via Webhook`);
-    // ... logic remains same ...
     logs.push(`[${new Date().toISOString()}] Payload recebido: ${JSON.stringify(payload)}`);
+
+    // Helper to replace variables like {{name}} with payload values
+    const resolveVars = (text: string, vars: any) => {
+      if (!text) return "";
+      return text.replace(/\{\{(.*?)\}\}/g, (_, key) => vars[key.trim()] || `{{${key}}}`);
+    };
 
     for (const node of nodes) {
       if (node.type === 'ai') {
         logs.push(`[${new Date().toISOString()}] Nó ${node.id} (IA): Processando com Gemini...`);
+        // AI logic would go here
       } else if (node.type === 'whatsapp') {
-        logs.push(`[${new Date().toISOString()}] Nó ${node.id} (WhatsApp): Enviando mensagem para ${node.data.config?.phone || 'número configurado'}...`);
+        const config = node.data.config || {};
+        const phone = resolveVars(config.phone || payload.phone, payload);
+        const message = resolveVars(config.message || "Olá!", payload);
+        const instance = config.instance || "main";
+
+        logs.push(`[${new Date().toISOString()}] Nó ${node.id} (WhatsApp): Enviando mensagem para ${phone} via instância ${instance}...`);
+
+        try {
+          // Evolution API Call
+          const response = await fetch(`${process.env.EVOLUTION_API_URL}/message/sendText/${instance}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': process.env.EVOLUTION_API_KEY || ''
+            },
+            body: JSON.stringify({
+              number: phone.replace(/\D/g, ''),
+              text: message,
+              linkPreview: true
+            })
+          });
+
+          if (response.ok) {
+            logs.push(`[${new Date().toISOString()}] WhatsApp enviado com sucesso.`);
+          } else {
+            const err = await response.text();
+            logs.push(`[${new Date().toISOString()}] Erro ao enviar WhatsApp: ${err}`);
+          }
+        } catch (err: any) {
+          logs.push(`[${new Date().toISOString()}] Erro de conexão com Evolution API: ${err.message}`);
+        }
       } else if (node.type === 'http') {
         logs.push(`[${new Date().toISOString()}] Nó ${node.id} (HTTP): Chamando API externa...`);
       }

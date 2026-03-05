@@ -171,6 +171,42 @@ export default function App() {
     setActiveWorkflow(null);
   };
 
+  const duplicateNode = useCallback((id: string) => {
+    setNodes((nds) => {
+      const nodeToDuplicate = nds.find((n) => n.id === id);
+      if (!nodeToDuplicate) return nds;
+
+      const newNode = {
+        ...nodeToDuplicate,
+        id: uuidv4(),
+        position: {
+          x: nodeToDuplicate.position.x + 50,
+          y: nodeToDuplicate.position.y + 50,
+        },
+        selected: false,
+      };
+
+      return nds.concat(newNode);
+    });
+  }, [setNodes]);
+
+  const deleteNode = useCallback((id: string) => {
+    setNodes((nds) => nds.filter((n) => n.id !== id));
+    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+    setSelectedNode(null);
+  }, [setNodes, setEdges]);
+
+  const updateNodesWithHandlers = useCallback((nds: Node[]) => {
+    return nds.map((n) => ({
+      ...n,
+      data: {
+        ...n.data,
+        onDuplicate: duplicateNode,
+        onDelete: deleteNode,
+      },
+    }));
+  }, [duplicateNode, deleteNode]);
+
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
     [setNodes]
@@ -228,7 +264,7 @@ export default function App() {
 
   const openWorkflow = (w: Workflow) => {
     setActiveWorkflow(w);
-    setNodes(w.nodes);
+    setNodes(updateNodesWithHandlers(w.nodes));
     setEdges(w.edges);
   };
 
@@ -270,7 +306,12 @@ export default function App() {
       id: uuidv4(),
       type,
       position: { x: Math.random() * 400, y: Math.random() * 400 },
-      data: { label: `Novo ${labels[type] || type.toUpperCase()}`, type },
+      data: {
+        label: `Novo ${labels[type] || type.toUpperCase()}`,
+        type,
+        onDuplicate: duplicateNode,
+        onDelete: deleteNode,
+      },
     };
     setNodes((nds) => nds.concat(newNode));
   };
@@ -433,16 +474,30 @@ export default function App() {
 
                 {selectedNode.type === 'whatsapp' && (
                   <div>
+                    <label className="block text-[10px] font-mono uppercase tracking-tighter opacity-40 mb-1">Instância Evolution</label>
+                    <input
+                      placeholder="main"
+                      value={selectedNode.data.config?.instance || ''}
+                      onChange={(e) => updateNodeData(selectedNode.id, { config: { ...selectedNode.data.config, instance: e.target.value } })}
+                      className="w-full border border-black p-2 text-sm focus:outline-none mb-4"
+                    />
                     <label className="block text-[10px] font-mono uppercase tracking-tighter opacity-40 mb-1">Número de Telefone</label>
                     <input
-                      placeholder="+55..."
+                      placeholder="+55... ou {{phone}}"
+                      value={selectedNode.data.config?.phone || ''}
+                      onChange={(e) => updateNodeData(selectedNode.id, { config: { ...selectedNode.data.config, phone: e.target.value } })}
                       className="w-full border border-black p-2 text-sm focus:outline-none mb-4"
                     />
                     <label className="block text-[10px] font-mono uppercase tracking-tighter opacity-40 mb-1">Template da Mensagem</label>
                     <textarea
-                      placeholder="Olá, esta é uma mensagem automática..."
+                      placeholder="Olá {{name}}, sua prova é hoje! Aberta das {{open_time}} às {{close_time}}."
+                      value={selectedNode.data.config?.message || ''}
+                      onChange={(e) => updateNodeData(selectedNode.id, { config: { ...selectedNode.data.config, message: e.target.value } })}
                       className="w-full border border-black p-2 text-sm h-24 focus:outline-none resize-none"
                     />
+                    <p className="text-[9px] mt-2 opacity-50">
+                      Dica: Use <strong>{"{{variável}}"}</strong> para dados dinâmicos do IETEO.
+                    </p>
                   </div>
                 )}
 
