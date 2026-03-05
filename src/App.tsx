@@ -271,10 +271,13 @@ export default function App() {
 
       if (!res.ok) {
         const contentType = res.headers.get("content-type");
-        const errorMsg = contentType && contentType.includes("application/json")
-          ? (await res.json()).error
-          : "Erro interno no servidor (Vercel)";
-        throw new Error(errorMsg);
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          throw new Error(data.error || 'Erro no servidor');
+        } else {
+          const rawError = await res.text();
+          throw new Error(rawError.substring(0, 300) || "Erro interno no servidor (Vercel)");
+        }
       }
 
       const { id } = await res.json();
@@ -313,10 +316,13 @@ export default function App() {
 
       if (!res.ok) {
         const contentType = res.headers.get("content-type");
-        const errorMsg = contentType && contentType.includes("application/json")
-          ? (await res.json()).error
-          : "Erro ao salvar alterações";
-        throw new Error(errorMsg);
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          throw new Error(data.error || 'Erro ao salvar alterações');
+        } else {
+          const rawError = await res.text();
+          throw new Error(rawError.substring(0, 300) || "Erro ao salvar alterações");
+        }
       }
 
       setIsSaving(false);
