@@ -41,6 +41,20 @@ export async function createApp() {
     next();
   };
 
+  // Basic Health Check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", env: process.env.NODE_ENV });
+  });
+
+  // Debug Env Presence (Masked)
+  app.get("/api/debug-env", (req, res) => {
+    res.json({
+      url: !!process.env.SUPABASE_URL,
+      key: !!process.env.SUPABASE_ANON_KEY,
+      nodeEnv: process.env.NODE_ENV
+    });
+  });
+
   // API Routes
   app.get("/api/workflows", requireAuth, async (req, res) => {
     const { data: workflows, error } = await supabase
@@ -54,20 +68,32 @@ export async function createApp() {
   });
 
   app.post("/api/workflows", requireAuth, async (req, res) => {
-    const { name, nodes, edges } = req.body;
-    const { data, error } = await supabase
-      .from("workflows")
-      .insert([{
-        user_id: req.user.id,
-        name: name || "Untitled Workflow",
-        nodes,
-        edges
-      }])
-      .select()
-      .single();
+    try {
+      const { name, nodes, edges } = req.body;
+      console.log('Creating workflow for user:', req.user.id);
 
-    if (error) return res.status(500).json({ error: "Erro ao salvar fluxo" });
-    res.json({ id: data.id });
+      const { data, error } = await supabase
+        .from("workflows")
+        .insert([{
+          user_id: req.user.id,
+          name: name || "Untitled Workflow",
+          nodes,
+          edges
+        }])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase error inserting workflow:', error);
+        return res.status(500).json({ error: error.message || "Erro ao salvar fluxo no banco" });
+      }
+
+      console.log('Workflow created successfully ID:', data.id);
+      res.json({ id: data.id });
+    } catch (err: any) {
+      console.error('Crash in POST /api/workflows:', err);
+      res.status(500).json({ error: "Internal Server Error during workflow creation" });
+    }
   });
 
   app.put("/api/workflows/:id", requireAuth, async (req, res) => {
@@ -184,6 +210,12 @@ export async function createApp() {
     });
     app.use(vite.middlewares);
   }
+
+  // Global Error Handler
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error('Uncaught Server Error:', err);
+    res.status(500).json({ error: "Internal Server Error", details: err.message });
+  });
 
   return app;
 }
