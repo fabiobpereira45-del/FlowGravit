@@ -1,9 +1,10 @@
+/// <reference types="vite/client" />
 import React, { useState, useCallback, useEffect } from 'react';
-import ReactFlow, { 
-  addEdge, 
-  Background, 
-  Controls, 
-  applyEdgeChanges, 
+import ReactFlow, {
+  addEdge,
+  Background,
+  Controls,
+  applyEdgeChanges,
   applyNodeChanges,
   Connection,
   Edge,
@@ -16,8 +17,13 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { Plus, Save, Play, Trash2, ArrowLeft, Settings2, Activity, LogOut, User, Lock, Eye, EyeOff } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import { createClient } from '@supabase/supabase-js';
 import { WebhookNode, AINode, WhatsAppNode, HTTPNode } from './components/Nodes';
 import { Workflow } from './types';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const nodeTypes = {
   webhook: WebhookNode,
@@ -39,17 +45,23 @@ function AuthScreen({ onAuth }: { onAuth: (user: any) => void }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      onAuth(data.user);
+
+    if (isLogin) {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: username.includes('@') ? username : `${username}@example.com`,
+        password,
+      });
+      if (error) setError(error.message);
     } else {
-      setError(data.error || 'Falha na autenticação');
+      const { error } = await supabase.auth.signUp({
+        email: username.includes('@') ? username : `${username}@example.com`,
+        password,
+      });
+      if (error) {
+        setError(error.message);
+      } else {
+        alert('Confirme seu e-mail para continuar (ou verifique se o auto-confirm está ativado no Supabase)');
+      }
     }
   };
 
@@ -62,7 +74,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: any) => void }) {
             <label className="block text-xs font-mono uppercase tracking-widest mb-2">Usuário</label>
             <div className="relative">
               <User className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" size={16} />
-              <input 
+              <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -75,7 +87,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: any) => void }) {
             <label className="block text-xs font-mono uppercase tracking-widest mb-2">Senha</label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" size={16} />
-              <input 
+              <input
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -96,7 +108,7 @@ function AuthScreen({ onAuth }: { onAuth: (user: any) => void }) {
             {isLogin ? 'ENTRAR' : 'REGISTRAR'}
           </button>
         </form>
-        <button 
+        <button
           onClick={() => setIsLogin(!isLogin)}
           className="w-full mt-6 text-xs font-mono uppercase tracking-widest hover:underline"
         >
@@ -117,20 +129,27 @@ export default function App() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const checkAuth = useCallback(async () => {
-    try {
-      const res = await fetch('/api/auth/me');
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
-      }
-    } catch (e) {}
-    setLoading(false);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const fetchWorkflows = useCallback(async () => {
     if (!user) return;
-    const res = await fetch('/api/workflows');
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch('/api/workflows', {
+      headers: {
+        'Authorization': `Bearer ${session?.access_token}`
+      }
+    });
     if (res.ok) {
       const data = await res.json();
       setWorkflows(data);
@@ -138,15 +157,11 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
-
-  useEffect(() => {
     if (user) fetchWorkflows();
   }, [user, fetchWorkflows]);
 
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await supabase.auth.signOut();
     setUser(null);
     setActiveWorkflow(null);
   };
@@ -192,9 +207,13 @@ export default function App() {
       ],
       edges: [],
     };
+    const { data: { session } } = await supabase.auth.getSession();
     const res = await fetch('/api/workflows', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session?.access_token}`
+      },
       body: JSON.stringify(newWorkflow),
     });
     const { id } = await res.json();
@@ -211,9 +230,13 @@ export default function App() {
   const saveWorkflow = async () => {
     if (!activeWorkflow) return;
     setIsSaving(true);
+    const { data: { session } } = await supabase.auth.getSession();
     await fetch(`/api/workflows/${activeWorkflow.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session?.access_token}`
+      },
       body: JSON.stringify({
         name: activeWorkflow.name,
         nodes,
@@ -226,7 +249,13 @@ export default function App() {
 
   const deleteWorkflow = async (id: string) => {
     if (!confirm('Você tem certeza?')) return;
-    await fetch(`/api/workflows/${id}`, { method: 'DELETE' });
+    const { data: { session } } = await supabase.auth.getSession();
+    await fetch(`/api/workflows/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${session?.access_token}`
+      }
+    });
     fetchWorkflows();
   };
 
@@ -259,14 +288,14 @@ export default function App() {
             </div>
           </div>
           <div className="flex gap-4">
-            <button 
+            <button
               onClick={handleLogout}
               className="flex items-center gap-2 border border-black px-6 py-3 hover:bg-black hover:text-white transition-colors"
             >
               <LogOut size={18} />
               <span>Sair</span>
             </button>
-            <button 
+            <button
               onClick={createWorkflow}
               className="flex items-center gap-2 bg-black text-white px-6 py-3 hover:bg-zinc-800 transition-colors"
             >
@@ -278,15 +307,15 @@ export default function App() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {workflows.map((w) => (
-            <div 
-              key={w.id} 
+            <div
+              key={w.id}
               className="group border border-black p-6 bg-white hover:bg-black hover:text-white transition-all cursor-pointer relative"
               onClick={() => openWorkflow(w)}
             >
               <div className="flex justify-between items-start mb-4">
                 <h3 className="text-xl font-medium">{w.name}</h3>
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button 
+                  <button
                     onClick={(e) => { e.stopPropagation(); deleteWorkflow(w.id); }}
                     className="p-2 hover:bg-white/20 rounded"
                   >
@@ -318,7 +347,7 @@ export default function App() {
             <ArrowLeft size={20} />
           </button>
           <div className="flex flex-col">
-            <input 
+            <input
               value={activeWorkflow.name}
               onChange={(e) => setActiveWorkflow({ ...activeWorkflow, name: e.target.value })}
               className="text-lg font-medium bg-transparent border-none focus:outline-none focus:ring-0 p-0"
@@ -330,7 +359,7 @@ export default function App() {
           <div className="flex items-center gap-2 text-xs font-mono uppercase mr-4 opacity-50">
             <User size={12} /> {user.username}
           </div>
-          <button 
+          <button
             onClick={saveWorkflow}
             disabled={isSaving}
             className="flex items-center gap-2 px-4 py-2 border border-black hover:bg-black hover:text-white transition-all disabled:opacity-50"
@@ -358,18 +387,18 @@ export default function App() {
         >
           <Background color="#aaa" gap={20} />
           <Controls />
-          
+
           {selectedNode && (
             <Panel position="bottom-right" className="bg-white border border-black p-6 w-80 shadow-2xl mb-4 mr-4">
               <div className="flex justify-between items-center mb-6 border-b border-black pb-2">
                 <h4 className="text-xs font-mono uppercase tracking-widest opacity-50">Configurações do Nó</h4>
                 <button onClick={() => setSelectedNode(null)} className="text-xs hover:underline">Fechar</button>
               </div>
-              
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-[10px] font-mono uppercase tracking-tighter opacity-40 mb-1">Rótulo</label>
-                  <input 
+                  <input
                     value={selectedNode.data.label}
                     onChange={(e) => updateNodeData(selectedNode.id, { label: e.target.value })}
                     className="w-full border border-black p-2 text-sm focus:outline-none"
@@ -379,7 +408,7 @@ export default function App() {
                 {selectedNode.type === 'ai' && (
                   <div>
                     <label className="block text-[10px] font-mono uppercase tracking-tighter opacity-40 mb-1">Prompt do Sistema</label>
-                    <textarea 
+                    <textarea
                       placeholder="Você é um assistente prestativo..."
                       className="w-full border border-black p-2 text-sm h-24 focus:outline-none resize-none"
                     />
@@ -389,12 +418,12 @@ export default function App() {
                 {selectedNode.type === 'whatsapp' && (
                   <div>
                     <label className="block text-[10px] font-mono uppercase tracking-tighter opacity-40 mb-1">Número de Telefone</label>
-                    <input 
+                    <input
                       placeholder="+55..."
                       className="w-full border border-black p-2 text-sm focus:outline-none mb-4"
                     />
                     <label className="block text-[10px] font-mono uppercase tracking-tighter opacity-40 mb-1">Template da Mensagem</label>
-                    <textarea 
+                    <textarea
                       placeholder="Olá, esta é uma mensagem automática..."
                       className="w-full border border-black p-2 text-sm h-24 focus:outline-none resize-none"
                     />
@@ -413,7 +442,7 @@ export default function App() {
                   </div>
                 )}
 
-                <button 
+                <button
                   onClick={() => {
                     setNodes((nds) => nds.filter((n) => n.id !== selectedNode.id));
                     setSelectedNode(null);
