@@ -150,14 +150,21 @@ export default function App() {
   const fetchWorkflows = useCallback(async () => {
     if (!user) return;
     const { data: { session } } = await supabase.auth.getSession();
-    const res = await fetch('/api/workflows', {
-      headers: {
-        'Authorization': `Bearer ${session?.access_token}`
+    try {
+      const res = await fetch('/api/workflows', {
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setWorkflows(data);
+      } else {
+        const errorData = await res.json();
+        console.error('Error fetching workflows:', errorData);
       }
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setWorkflows(data);
+    } catch (err) {
+      console.error('Network error fetching workflows:', err);
     }
   }, [user]);
 
@@ -248,18 +255,30 @@ export default function App() {
       ],
       edges: [],
     };
-    const { data: { session } } = await supabase.auth.getSession();
-    const res = await fetch('/api/workflows', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session?.access_token}`
-      },
-      body: JSON.stringify(newWorkflow),
-    });
-    const { id } = await res.json();
-    fetchWorkflows();
-    openWorkflow({ ...newWorkflow, id, created_at: new Date().toISOString() } as Workflow);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/workflows', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify(newWorkflow),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Erro ao criar fluxo');
+      }
+
+      const { id } = await res.json();
+      console.log('Workflow created successfully:', id);
+      fetchWorkflows();
+      openWorkflow({ ...newWorkflow, id, created_at: new Date().toISOString() } as Workflow);
+    } catch (err: any) {
+      console.error('Failed to create workflow:', err);
+      alert(`Erro: ${err.message}`);
+    }
   };
 
   const openWorkflow = (w: Workflow) => {
@@ -271,21 +290,33 @@ export default function App() {
   const saveWorkflow = async () => {
     if (!activeWorkflow) return;
     setIsSaving(true);
-    const { data: { session } } = await supabase.auth.getSession();
-    await fetch(`/api/workflows/${activeWorkflow.id}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session?.access_token}`
-      },
-      body: JSON.stringify({
-        name: activeWorkflow.name,
-        nodes,
-        edges,
-      }),
-    });
-    setIsSaving(false);
-    fetchWorkflows();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`/api/workflows/${activeWorkflow.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          name: activeWorkflow.name,
+          nodes,
+          edges,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Erro ao salvar fluxo');
+      }
+
+      setIsSaving(false);
+      fetchWorkflows();
+    } catch (err: any) {
+      console.error('Failed to save workflow:', err);
+      alert(`Erro: ${err.message}`);
+      setIsSaving(false);
+    }
   };
 
   const deleteWorkflow = async (id: string) => {
