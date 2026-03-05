@@ -4,9 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
 
-// Define Vite server type for dynamic import
-type ViteDevServer = any;
-
 declare global {
   namespace Express {
     interface Request {
@@ -216,20 +213,14 @@ export async function createApp() {
     res.json({ success: true, logs });
   });
 
-  if (process.env.NODE_ENV !== "production") {
-    // Dynamic import to avoid loading Vite in production
-    const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  }
-
   // Global Error Handler
   app.use((err: any, req: any, res: any, next: any) => {
     console.error('Uncaught Server Error:', err);
-    res.status(500).json({ error: "Internal Server Error", details: err.message });
+    res.status(500).json({
+      error: "Internal Server Error",
+      message: err.message,
+      path: req.path
+    });
   });
 
   return app;
