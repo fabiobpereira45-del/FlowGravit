@@ -15,9 +15,14 @@ declare global {
   }
 }
 
-const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const getSupabase = () => {
+  const supabaseUrl = process.env.SUPABASE_URL || "";
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("ERRO: SUPABASE_URL ou SUPABASE_ANON_KEY não configuradas!");
+  }
+  return createClient(supabaseUrl, supabaseAnonKey);
+};
 
 export async function createApp() {
   const app = express();
@@ -25,20 +30,30 @@ export async function createApp() {
 
   const PORT = 3001;
 
+  const supabase = getSupabase();
+
   // Middleware to verify Supabase JWT
   const requireAuth = async (req: any, res: any, next: any) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ error: "Não autorizado" });
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) return res.status(401).json({ error: "Não autorizado" });
 
-    const token = authHeader.split(" ")[1];
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+      const token = authHeader.split(" ")[1];
+      if (!token) return res.status(401).json({ error: "Token ausente" });
 
-    if (error || !user) {
-      return res.status(401).json({ error: "Sessão inválida" });
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+
+      if (error || !user) {
+        console.error('Auth error:', error);
+        return res.status(401).json({ error: "Sessão inválida" });
+      }
+
+      req.user = user;
+      next();
+    } catch (err) {
+      console.error('Crash in requireAuth:', err);
+      res.status(401).json({ error: "Erro de autenticação" });
     }
-
-    req.user = user;
-    next();
   };
 
   // Basic Health Check
