@@ -2,7 +2,8 @@ import express from "express";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
-dotenv.config();
+// Define Vite server type for dynamic import
+type ViteDevServer = any;
 
 declare global {
   namespace Express {
@@ -22,6 +23,7 @@ const getSupabase = () => {
 };
 
 export async function createApp() {
+  dotenv.config();
   const app = express();
   app.use(express.json());
 
