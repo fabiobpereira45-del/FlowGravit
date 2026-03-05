@@ -2,15 +2,11 @@
     "version": 2,
     "rewrites": [
         {
-            "source": "/api/workflows(.*)",
+            "source": "/api/:path*",
             "destination": "/api/server"
         },
         {
-            "source": "/api/health",
-            "destination": "/api/health"
-        },
-        {
-            "source": "/((?!assets/|favicon.ico|.*\\.js|.*\\.css|api/).*)",
+            "source": "/:path*",
             "destination": "/index.html"
         }
     ]
