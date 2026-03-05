@@ -23,6 +23,11 @@ import { Workflow } from './types';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error("Supabase configuration is missing! Check your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables.");
+}
+
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const nodeTypes = {
@@ -271,6 +276,17 @@ export default function App() {
   };
 
   if (loading) return <div className="min-h-screen flex items-center justify-center font-mono">CARREGANDO...</div>;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-red-50 p-8 text-center">
+        <h1 className="text-2xl font-bold text-red-600 mb-4">Configuração Auxente</h1>
+        <p className="max-w-md text-red-800">
+          As variáveis de ambiente do Supabase não foram encontradas.
+          Certifique-se de configurar <strong>VITE_SUPABASE_URL</strong> e <strong>VITE_SUPABASE_ANON_KEY</strong> no painel do Vercel e realizar um novo deploy.
+        </p>
+      </div>
+    );
+  }
   if (!user) return <AuthScreen onAuth={setUser} />;
 
   if (!activeWorkflow) {
