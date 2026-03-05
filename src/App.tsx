@@ -160,8 +160,11 @@ export default function App() {
         const data = await res.json();
         setWorkflows(data);
       } else {
-        const errorData = await res.json();
-        console.error('Error fetching workflows:', errorData);
+        const contentType = res.headers.get("content-type");
+        const errorText = contentType && contentType.includes("application/json")
+          ? (await res.json()).error
+          : await res.text();
+        console.error('Error fetching workflows:', errorText);
       }
     } catch (err) {
       console.error('Network error fetching workflows:', err);
@@ -267,8 +270,11 @@ export default function App() {
       });
 
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'Erro ao criar fluxo');
+        const contentType = res.headers.get("content-type");
+        const errorMsg = contentType && contentType.includes("application/json")
+          ? (await res.json()).error
+          : "Erro interno no servidor (Vercel)";
+        throw new Error(errorMsg);
       }
 
       const { id } = await res.json();
@@ -306,8 +312,11 @@ export default function App() {
       });
 
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'Erro ao salvar fluxo');
+        const contentType = res.headers.get("content-type");
+        const errorMsg = contentType && contentType.includes("application/json")
+          ? (await res.json()).error
+          : "Erro ao salvar alterações";
+        throw new Error(errorMsg);
       }
 
       setIsSaving(false);

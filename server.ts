@@ -1,9 +1,11 @@
 import express from "express";
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
-import { createServer as createViteServer } from "vite";
 
 dotenv.config();
+
+// Define Vite server type for dynamic import
+type ViteDevServer = any;
 
 declare global {
   namespace Express {
@@ -174,13 +176,13 @@ export async function createApp() {
   });
 
   if (process.env.NODE_ENV !== "production") {
+    // Dynamic import to avoid loading Vite in production
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-  } else {
-    app.use(express.static("dist"));
   }
 
   return app;
