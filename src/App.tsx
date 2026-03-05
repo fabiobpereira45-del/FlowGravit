@@ -153,9 +153,12 @@ export default function App() {
     try {
       const res = await fetch('/api/workflows', {
         headers: {
-          'Authorization': `Bearer ${session?.access_token}`
+          'Authorization': `Bearer ${session?.access_token}`,
+          'x-supabase-url': import.meta.env.VITE_SUPABASE_URL,
+          'x-supabase-key': import.meta.env.VITE_SUPABASE_ANON_KEY
         }
       });
+
       if (res.ok) {
         const data = await res.json();
         setWorkflows(data);
@@ -264,7 +267,9 @@ export default function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
+          'Authorization': `Bearer ${session?.access_token}`,
+          'x-supabase-url': import.meta.env.VITE_SUPABASE_URL,
+          'x-supabase-key': import.meta.env.VITE_SUPABASE_ANON_KEY
         },
         body: JSON.stringify(newWorkflow),
       });
@@ -305,7 +310,9 @@ export default function App() {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
+          'Authorization': `Bearer ${session?.access_token}`,
+          'x-supabase-url': import.meta.env.VITE_SUPABASE_URL,
+          'x-supabase-key': import.meta.env.VITE_SUPABASE_ANON_KEY
         },
         body: JSON.stringify({
           name: activeWorkflow.name,
@@ -340,8 +347,11 @@ export default function App() {
     await fetch(`/api/workflows/${id}`, {
       method: 'DELETE',
       headers: {
-        'Authorization': `Bearer ${session?.access_token}`
+        'Authorization': `Bearer ${session?.access_token}`,
+        'x-supabase-url': import.meta.env.VITE_SUPABASE_URL,
+        'x-supabase-key': import.meta.env.VITE_SUPABASE_ANON_KEY
       }
+
     });
     fetchWorkflows();
   };

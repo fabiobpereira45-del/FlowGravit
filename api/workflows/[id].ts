@@ -1,16 +1,18 @@
 import { createClient } from "@supabase/supabase-js";
 
-const getSupabase = () => createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_ANON_KEY!
-);
+const getSupabase = (req: any) => {
+    const url = process.env.SUPABASE_URL || req.headers['x-supabase-url'];
+    const key = process.env.SUPABASE_ANON_KEY || req.headers['x-supabase-key'];
+    if (!url || !key) throw new Error("Supabase credentials missing");
+    return createClient(url, key);
+};
 
 const requireAuth = async (req: any) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) throw new Error("Não autorizado");
     const token = authHeader.split(" ")[1];
     if (!token) throw new Error("Token ausente");
-    const supabase = getSupabase();
+    const supabase = getSupabase(req);
     const { data: { user }, error } = await supabase.auth.getUser(token);
     if (error || !user) throw new Error("Sessão inválida");
     return { user, supabase };
