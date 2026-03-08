@@ -190,6 +190,9 @@ export async function createApp() {
               continue;
             }
 
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
             const response = await fetch(`${apiUrl}/message/sendText/${instance}`, {
               method: 'POST',
               headers: {
@@ -200,8 +203,11 @@ export async function createApp() {
                 number: cleanPhone,
                 text: message,
                 linkPreview: true
-              })
+              }),
+              signal: controller.signal
             });
+
+            clearTimeout(timeoutId);
 
             if (response.ok) {
               logs.push(`[${new Date().toISOString()}] WhatsApp enviado com sucesso.`);
@@ -210,7 +216,11 @@ export async function createApp() {
               logs.push(`[${new Date().toISOString()}] Erro ao enviar WhatsApp: ${err}`);
             }
           } catch (err: any) {
-            logs.push(`[${new Date().toISOString()}] Erro de conexão com Evolution API: ${err.message}`);
+            if (err.name === 'AbortError') {
+              logs.push(`[${new Date().toISOString()}] Erro: Timeout na Evolution API (5 segundos excedidos) ao contatar ${cleanPhone}.`);
+            } else {
+              logs.push(`[${new Date().toISOString()}] Erro de conexão com Evolution API: ${err.message}`);
+            }
           }
         } else if (node.type === 'http') {
           logs.push(`[${new Date().toISOString()}] Nó ${node.id} (HTTP): Chamando API externa...`);
