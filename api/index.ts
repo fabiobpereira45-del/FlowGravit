@@ -1,3 +1,7 @@
-export default function handler(req: any, res: any) {
-    res.status(200).json({ ok: true, message: "Minimal API is working!" });
-}
+import express from "express";
+const app = express();
+app.use(express.json());
+
+app.get("/api/test-express", (req, res) => res.json({ ok: true, msg: "Express minimal works!" }));
+
+export default app;
