@@ -244,6 +244,12 @@ app.post("/api/webhook/:id", async (req, res) => {
   }
 });
 
+// Global Not Found handler for Express debugging within Vercel
+app.use((req: any, res: any, next: any) => {
+  console.log(`Express 404 - Request URL seen by Express: ${req.url}, Original: ${req.originalUrl}, Path: ${req.path}`);
+  res.status(404).json({ error: "Route not found inside Express", url: req.url, originalUrl: req.originalUrl });
+});
+
 // Global Error Handler
 app.use((err: any, req: any, res: any, next: any) => {
   console.error('Uncaught Server Error:', err);
