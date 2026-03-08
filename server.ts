@@ -189,9 +189,6 @@ app.post("/api/webhook/:id", async (req, res) => {
             continue;
           }
 
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-
           const response = await fetch(`${apiUrl}/message/sendText/${instance}`, {
             method: 'POST',
             headers: {
@@ -202,11 +199,8 @@ app.post("/api/webhook/:id", async (req, res) => {
               number: cleanPhone,
               text: message,
               linkPreview: true
-            }),
-            signal: controller.signal
+            })
           });
-
-          clearTimeout(timeoutId);
 
           if (response.ok) {
             logs.push(`[${new Date().toISOString()}] WhatsApp enviado com sucesso.`);
