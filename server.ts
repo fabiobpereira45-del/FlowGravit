@@ -136,8 +136,11 @@ app.delete("/api/workflows/:id", requireAuth, async (req, res) => {
 
 // Workflow Execution Engine (Simple Webhook Trigger)
 app.post("/api/webhook/:id", async (req, res) => {
+  let currentStep = "Início do processamento webhook";
   try {
     const { id } = req.params;
+
+    currentStep = "Buscando workflow no Supabase";
     const { data: workflow, error: wfError } = await supabase
       .from("workflows")
       .select("*")
@@ -145,9 +148,10 @@ app.post("/api/webhook/:id", async (req, res) => {
       .single();
 
     if (wfError || !workflow) {
-      return res.status(404).json({ error: "Fluxo de trabalho não encontrado" });
+      return res.status(404).json({ error: "Fluxo de trabalho não encontrado", details: wfError });
     }
 
+    currentStep = "Processando nós do workflow";
     const nodes = workflow.nodes || [];
     const payload = req.body || {};
 
@@ -166,6 +170,7 @@ app.post("/api/webhook/:id", async (req, res) => {
         logs.push(`[${new Date().toISOString()}] Nó ${node.id} (IA): Processando com Gemini...`);
         // AI logic would go here
       } else if (node.type === 'whatsapp') {
+        currentStep = `Processando nó whatsapp ${node.id}`;
         const config = node.data?.config || {};
         const phone = resolveVars(config.phone || payload.phone, payload);
         const message = resolveVars(config.message || "Olá!", payload);
@@ -189,6 +194,7 @@ app.post("/api/webhook/:id", async (req, res) => {
             continue;
           }
 
+          currentStep = `Fazendo fetch para Evolution API - ${cleanPhone}`;
           const response = await fetch(`${apiUrl}/message/sendText/${instance}`, {
             method: 'POST',
             headers: {
@@ -210,17 +216,14 @@ app.post("/api/webhook/:id", async (req, res) => {
           }
         } catch (err: any) {
           const phoneNum = (phone ? phone.replace(/\D/g, '') : 'desconhecido');
-          if (err.name === 'AbortError') {
-            logs.push(`[${new Date().toISOString()}] Erro: Timeout na Evolution API (5 segundos excedidos) ao contatar ${phoneNum}.`);
-          } else {
-            logs.push(`[${new Date().toISOString()}] Erro de conexão com Evolution API: ${err.message}`);
-          }
+          logs.push(`[${new Date().toISOString()}] Erro de conexão com Evolution API contatando ${phoneNum}: ${err?.message || String(err)}`);
         }
       } else if (node.type === 'http') {
         logs.push(`[${new Date().toISOString()}] Nó ${node.id} (HTTP): Chamando API externa...`);
       }
     }
 
+    currentStep = "Salvando logs de execução no Supabase";
     logs.push(`[${new Date().toISOString()}] Fluxo concluído com sucesso`);
 
     await supabase
@@ -231,10 +234,16 @@ app.post("/api/webhook/:id", async (req, res) => {
         logs
       }]);
 
+    currentStep = "Finalizado";
     res.status(200).json({ success: true, logs });
   } catch (error: any) {
-    console.error('Webhook Error:', error);
-    res.status(500).json({ error: "Erro interno no servidor ao processar o webhook", details: error.message });
+    console.error(`Webhook Error at step [${currentStep}]:`, error);
+    res.status(500).json({
+      error: "Erro interno no servidor ao processar o webhook",
+      step: currentStep,
+      details: error?.message || String(error),
+      stack: error?.stack
+    });
   }
 });
 
