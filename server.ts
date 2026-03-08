@@ -137,82 +137,101 @@ export async function createApp() {
 
   // Workflow Execution Engine (Simple Webhook Trigger)
   app.post("/api/webhook/:id", async (req, res) => {
-    const { id } = req.params;
-    const { data: workflow, error: wfError } = await supabase
-      .from("workflows")
-      .select("*")
-      .eq("id", id)
-      .single();
+    try {
+      const { id } = req.params;
+      const { data: workflow, error: wfError } = await supabase
+        .from("workflows")
+        .select("*")
+        .eq("id", id)
+        .single();
 
-    if (wfError || !workflow) {
-      return res.status(404).json({ error: "Fluxo de trabalho não encontrado" });
-    }
-
-    const nodes = workflow.nodes;
-    const payload = req.body;
-
-    const logs: string[] = [];
-    logs.push(`[${new Date().toISOString()}] Fluxo iniciado via Webhook`);
-    logs.push(`[${new Date().toISOString()}] Payload recebido: ${JSON.stringify(payload)}`);
-
-    // Helper to replace variables like {{name}} with payload values
-    const resolveVars = (text: string, vars: any) => {
-      if (!text) return "";
-      return text.replace(/\{\{(.*?)\}\}/g, (_, key) => vars[key.trim()] || `{{${key}}}`);
-    };
-
-    for (const node of nodes) {
-      if (node.type === 'ai') {
-        logs.push(`[${new Date().toISOString()}] Nó ${node.id} (IA): Processando com Gemini...`);
-        // AI logic would go here
-      } else if (node.type === 'whatsapp') {
-        const config = node.data.config || {};
-        const phone = resolveVars(config.phone || payload.phone, payload);
-        const message = resolveVars(config.message || "Olá!", payload);
-        const instance = config.instance || "main";
-
-        logs.push(`[${new Date().toISOString()}] Nó ${node.id} (WhatsApp): Enviando mensagem para ${phone} via instância ${instance}...`);
-
-        try {
-          // Evolution API Call
-          const response = await fetch(`${process.env.EVOLUTION_API_URL}/message/sendText/${instance}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'apikey': process.env.EVOLUTION_API_KEY || ''
-            },
-            body: JSON.stringify({
-              number: phone.replace(/\D/g, ''),
-              text: message,
-              linkPreview: true
-            })
-          });
-
-          if (response.ok) {
-            logs.push(`[${new Date().toISOString()}] WhatsApp enviado com sucesso.`);
-          } else {
-            const err = await response.text();
-            logs.push(`[${new Date().toISOString()}] Erro ao enviar WhatsApp: ${err}`);
-          }
-        } catch (err: any) {
-          logs.push(`[${new Date().toISOString()}] Erro de conexão com Evolution API: ${err.message}`);
-        }
-      } else if (node.type === 'http') {
-        logs.push(`[${new Date().toISOString()}] Nó ${node.id} (HTTP): Chamando API externa...`);
+      if (wfError || !workflow) {
+        return res.status(404).json({ error: "Fluxo de trabalho não encontrado" });
       }
+
+      const nodes = workflow.nodes || [];
+      const payload = req.body || {};
+
+      const logs: string[] = [];
+      logs.push(`[${new Date().toISOString()}] Fluxo iniciado via Webhook`);
+      logs.push(`[${new Date().toISOString()}] Payload recebido: ${JSON.stringify(payload)}`);
+
+      // Helper to replace variables like {{name}} with payload values
+      const resolveVars = (text: string, vars: any) => {
+        if (!text) return "";
+        return text.replace(/\{\{(.*?)\}\}/g, (_, key) => vars[key.trim()] || `{{${key}}}`);
+      };
+
+      for (const node of nodes) {
+        if (node.type === 'ai') {
+          logs.push(`[${new Date().toISOString()}] Nó ${node.id} (IA): Processando com Gemini...`);
+          // AI logic would go here
+        } else if (node.type === 'whatsapp') {
+          const config = node.data?.config || {};
+          const phone = resolveVars(config.phone || payload.phone, payload);
+          const message = resolveVars(config.message || "Olá!", payload);
+          const instance = config.instance || "main";
+
+          logs.push(`[${new Date().toISOString()}] Nó ${node.id} (WhatsApp): Enviando mensagem para ${phone} via instância ${instance}...`);
+
+          try {
+            // Evolution API Call
+            const apiUrl = process.env.EVOLUTION_API_URL || '';
+            const apiKey = process.env.EVOLUTION_API_KEY || '';
+
+            if (!apiUrl || !apiKey) {
+              logs.push(`[${new Date().toISOString()}] Erro: Configurações de Evolution API ausentes (verifique variáveis de ambiente).`);
+              continue;
+            }
+
+            const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
+            if (!cleanPhone) {
+              logs.push(`[${new Date().toISOString()}] Erro: Número de telefone inválido ou ausente. Recebido: ${phone}`);
+              continue;
+            }
+
+            const response = await fetch(`${apiUrl}/message/sendText/${instance}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': apiKey
+              },
+              body: JSON.stringify({
+                number: cleanPhone,
+                text: message,
+                linkPreview: true
+              })
+            });
+
+            if (response.ok) {
+              logs.push(`[${new Date().toISOString()}] WhatsApp enviado com sucesso.`);
+            } else {
+              const err = await response.text();
+              logs.push(`[${new Date().toISOString()}] Erro ao enviar WhatsApp: ${err}`);
+            }
+          } catch (err: any) {
+            logs.push(`[${new Date().toISOString()}] Erro de conexão com Evolution API: ${err.message}`);
+          }
+        } else if (node.type === 'http') {
+          logs.push(`[${new Date().toISOString()}] Nó ${node.id} (HTTP): Chamando API externa...`);
+        }
+      }
+
+      logs.push(`[${new Date().toISOString()}] Fluxo concluído com sucesso`);
+
+      await supabase
+        .from("executions")
+        .insert([{
+          workflow_id: id,
+          status: "completed",
+          logs
+        }]);
+
+      res.status(200).json({ success: true, logs });
+    } catch (error: any) {
+      console.error('Webhook Error:', error);
+      res.status(500).json({ error: "Erro interno no servidor ao processar o webhook", details: error.message });
     }
-
-    logs.push(`[${new Date().toISOString()}] Fluxo concluído com sucesso`);
-
-    await supabase
-      .from("executions")
-      .insert([{
-        workflow_id: id,
-        status: "completed",
-        logs
-      }]);
-
-    res.json({ success: true, logs });
   });
 
   // Global Error Handler
