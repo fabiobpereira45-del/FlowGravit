@@ -1,4 +1,4 @@
-import { createApp } from "./server";
+import app from "./server";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 
@@ -6,7 +6,6 @@ dotenv.config();
 
 async function startDevServer() {
     console.log("Starting Development Server...");
-    const app = await createApp();
 
     // Create Vite server in middleware mode
     const vite = await createViteServer({

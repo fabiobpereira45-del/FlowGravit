@@ -22,237 +22,236 @@ const getSupabase = () => {
   return createClient(supabaseUrl, supabaseAnonKey);
 };
 
-export async function createApp() {
-  dotenv.config();
-  const app = express();
-  app.use(express.json());
+dotenv.config();
+const app = express();
+app.use(express.json());
 
-  const PORT = 3001;
+const PORT = 3001;
 
-  const supabase = getSupabase();
+const supabase = getSupabase();
 
-  // Middleware to verify Supabase JWT
-  const requireAuth = async (req: any, res: any, next: any) => {
-    try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader) return res.status(401).json({ error: "Não autorizado" });
+// Middleware to verify Supabase JWT
+const requireAuth = async (req: any, res: any, next: any) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: "Não autorizado" });
 
-      const token = authHeader.split(" ")[1];
-      if (!token) return res.status(401).json({ error: "Token ausente" });
+    const token = authHeader.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "Token ausente" });
 
-      const { data: { user }, error } = await supabase.auth.getUser(token);
+    const { data: { user }, error } = await supabase.auth.getUser(token);
 
-      if (error || !user) {
-        console.error('Auth error:', error);
-        return res.status(401).json({ error: "Sessão inválida" });
-      }
-
-      req.user = user;
-      next();
-    } catch (err) {
-      console.error('Crash in requireAuth:', err);
-      res.status(401).json({ error: "Erro de autenticação" });
+    if (error || !user) {
+      console.error('Auth error:', error);
+      return res.status(401).json({ error: "Sessão inválida" });
     }
-  };
 
-  // Basic Health Check
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", env: process.env.NODE_ENV });
+    req.user = user;
+    next();
+  } catch (err) {
+    console.error('Crash in requireAuth:', err);
+    res.status(401).json({ error: "Erro de autenticação" });
+  }
+};
+
+// Basic Health Check
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", env: process.env.NODE_ENV });
+});
+
+// Debug Env Presence (Masked)
+app.get("/api/debug-env", (req, res) => {
+  res.json({
+    url: !!process.env.SUPABASE_URL,
+    key: !!process.env.SUPABASE_ANON_KEY,
+    nodeEnv: process.env.NODE_ENV
   });
+});
 
-  // Debug Env Presence (Masked)
-  app.get("/api/debug-env", (req, res) => {
-    res.json({
-      url: !!process.env.SUPABASE_URL,
-      key: !!process.env.SUPABASE_ANON_KEY,
-      nodeEnv: process.env.NODE_ENV
-    });
-  });
+// API Routes
+app.get("/api/workflows", requireAuth, async (req, res) => {
+  const { data: workflows, error } = await supabase
+    .from("workflows")
+    .select("*")
+    .eq("user_id", req.user.id)
+    .order("created_at", { ascending: false });
 
-  // API Routes
-  app.get("/api/workflows", requireAuth, async (req, res) => {
-    const { data: workflows, error } = await supabase
+  if (error) return res.status(500).json({ error: "Erro ao buscar fluxos" });
+  res.json(workflows);
+});
+
+app.post("/api/workflows", requireAuth, async (req, res) => {
+  try {
+    const { name, nodes, edges } = req.body;
+    console.log('Creating workflow for user:', req.user.id);
+
+    const { data, error } = await supabase
+      .from("workflows")
+      .insert([{
+        user_id: req.user.id,
+        name: name || "Untitled Workflow",
+        nodes,
+        edges
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Supabase error inserting workflow:', error);
+      return res.status(500).json({ error: error.message || "Erro ao salvar fluxo no banco" });
+    }
+
+    console.log('Workflow created successfully ID:', data.id);
+    res.json({ id: data.id });
+  } catch (err: any) {
+    console.error('Crash in POST /api/workflows:', err);
+    res.status(500).json({ error: "Internal Server Error during workflow creation" });
+  }
+});
+
+app.put("/api/workflows/:id", requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { name, nodes, edges } = req.body;
+  const { error } = await supabase
+    .from("workflows")
+    .update({ name, nodes, edges })
+    .eq("id", id)
+    .eq("user_id", req.user.id);
+
+  if (error) return res.status(500).json({ error: "Erro ao atualizar fluxo" });
+  res.json({ success: true });
+});
+
+app.delete("/api/workflows/:id", requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { error } = await supabase
+    .from("workflows")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", req.user.id);
+
+  if (error) return res.status(500).json({ error: "Erro ao deletar fluxo" });
+  res.json({ success: true });
+});
+
+// Workflow Execution Engine (Simple Webhook Trigger)
+app.post("/api/webhook/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data: workflow, error: wfError } = await supabase
       .from("workflows")
       .select("*")
-      .eq("user_id", req.user.id)
-      .order("created_at", { ascending: false });
+      .eq("id", id)
+      .single();
 
-    if (error) return res.status(500).json({ error: "Erro ao buscar fluxos" });
-    res.json(workflows);
-  });
-
-  app.post("/api/workflows", requireAuth, async (req, res) => {
-    try {
-      const { name, nodes, edges } = req.body;
-      console.log('Creating workflow for user:', req.user.id);
-
-      const { data, error } = await supabase
-        .from("workflows")
-        .insert([{
-          user_id: req.user.id,
-          name: name || "Untitled Workflow",
-          nodes,
-          edges
-        }])
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Supabase error inserting workflow:', error);
-        return res.status(500).json({ error: error.message || "Erro ao salvar fluxo no banco" });
-      }
-
-      console.log('Workflow created successfully ID:', data.id);
-      res.json({ id: data.id });
-    } catch (err: any) {
-      console.error('Crash in POST /api/workflows:', err);
-      res.status(500).json({ error: "Internal Server Error during workflow creation" });
+    if (wfError || !workflow) {
+      return res.status(404).json({ error: "Fluxo de trabalho não encontrado" });
     }
-  });
 
-  app.put("/api/workflows/:id", requireAuth, async (req, res) => {
-    const { id } = req.params;
-    const { name, nodes, edges } = req.body;
-    const { error } = await supabase
-      .from("workflows")
-      .update({ name, nodes, edges })
-      .eq("id", id)
-      .eq("user_id", req.user.id);
+    const nodes = workflow.nodes || [];
+    const payload = req.body || {};
 
-    if (error) return res.status(500).json({ error: "Erro ao atualizar fluxo" });
-    res.json({ success: true });
-  });
+    const logs: string[] = [];
+    logs.push(`[${new Date().toISOString()}] Fluxo iniciado via Webhook`);
+    logs.push(`[${new Date().toISOString()}] Payload recebido: ${JSON.stringify(payload)}`);
 
-  app.delete("/api/workflows/:id", requireAuth, async (req, res) => {
-    const { id } = req.params;
-    const { error } = await supabase
-      .from("workflows")
-      .delete()
-      .eq("id", id)
-      .eq("user_id", req.user.id);
+    // Helper to replace variables like {{name}} with payload values
+    const resolveVars = (text: string, vars: any) => {
+      if (!text) return "";
+      return text.replace(/\{\{(.*?)\}\}/g, (_, key) => vars[key.trim()] || `{{${key}}}`);
+    };
 
-    if (error) return res.status(500).json({ error: "Erro ao deletar fluxo" });
-    res.json({ success: true });
-  });
+    for (const node of nodes) {
+      if (node.type === 'ai') {
+        logs.push(`[${new Date().toISOString()}] Nó ${node.id} (IA): Processando com Gemini...`);
+        // AI logic would go here
+      } else if (node.type === 'whatsapp') {
+        const config = node.data?.config || {};
+        const phone = resolveVars(config.phone || payload.phone, payload);
+        const message = resolveVars(config.message || "Olá!", payload);
+        const instance = config.instance || "main";
 
-  // Workflow Execution Engine (Simple Webhook Trigger)
-  app.post("/api/webhook/:id", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { data: workflow, error: wfError } = await supabase
-        .from("workflows")
-        .select("*")
-        .eq("id", id)
-        .single();
+        logs.push(`[${new Date().toISOString()}] Nó ${node.id} (WhatsApp): Enviando mensagem para ${phone} via instância ${instance}...`);
 
-      if (wfError || !workflow) {
-        return res.status(404).json({ error: "Fluxo de trabalho não encontrado" });
-      }
+        try {
+          // Evolution API Call
+          const apiUrl = process.env.EVOLUTION_API_URL || '';
+          const apiKey = process.env.EVOLUTION_API_KEY || '';
 
-      const nodes = workflow.nodes || [];
-      const payload = req.body || {};
-
-      const logs: string[] = [];
-      logs.push(`[${new Date().toISOString()}] Fluxo iniciado via Webhook`);
-      logs.push(`[${new Date().toISOString()}] Payload recebido: ${JSON.stringify(payload)}`);
-
-      // Helper to replace variables like {{name}} with payload values
-      const resolveVars = (text: string, vars: any) => {
-        if (!text) return "";
-        return text.replace(/\{\{(.*?)\}\}/g, (_, key) => vars[key.trim()] || `{{${key}}}`);
-      };
-
-      for (const node of nodes) {
-        if (node.type === 'ai') {
-          logs.push(`[${new Date().toISOString()}] Nó ${node.id} (IA): Processando com Gemini...`);
-          // AI logic would go here
-        } else if (node.type === 'whatsapp') {
-          const config = node.data?.config || {};
-          const phone = resolveVars(config.phone || payload.phone, payload);
-          const message = resolveVars(config.message || "Olá!", payload);
-          const instance = config.instance || "main";
-
-          logs.push(`[${new Date().toISOString()}] Nó ${node.id} (WhatsApp): Enviando mensagem para ${phone} via instância ${instance}...`);
-
-          try {
-            // Evolution API Call
-            const apiUrl = process.env.EVOLUTION_API_URL || '';
-            const apiKey = process.env.EVOLUTION_API_KEY || '';
-
-            if (!apiUrl || !apiKey) {
-              logs.push(`[${new Date().toISOString()}] Erro: Configurações de Evolution API ausentes (verifique variáveis de ambiente).`);
-              continue;
-            }
-
-            const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
-            if (!cleanPhone) {
-              logs.push(`[${new Date().toISOString()}] Erro: Número de telefone inválido ou ausente. Recebido: ${phone}`);
-              continue;
-            }
-
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-            const response = await fetch(`${apiUrl}/message/sendText/${instance}`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'apikey': apiKey
-              },
-              body: JSON.stringify({
-                number: cleanPhone,
-                text: message,
-                linkPreview: true
-              }),
-              signal: controller.signal
-            });
-
-            clearTimeout(timeoutId);
-
-            if (response.ok) {
-              logs.push(`[${new Date().toISOString()}] WhatsApp enviado com sucesso.`);
-            } else {
-              const err = await response.text();
-              logs.push(`[${new Date().toISOString()}] Erro ao enviar WhatsApp: ${err}`);
-            }
-          } catch (err: any) {
-            if (err.name === 'AbortError') {
-              logs.push(`[${new Date().toISOString()}] Erro: Timeout na Evolution API (5 segundos excedidos) ao contatar ${cleanPhone}.`);
-            } else {
-              logs.push(`[${new Date().toISOString()}] Erro de conexão com Evolution API: ${err.message}`);
-            }
+          if (!apiUrl || !apiKey) {
+            logs.push(`[${new Date().toISOString()}] Erro: Configurações de Evolution API ausentes (verifique variáveis de ambiente).`);
+            continue;
           }
-        } else if (node.type === 'http') {
-          logs.push(`[${new Date().toISOString()}] Nó ${node.id} (HTTP): Chamando API externa...`);
+
+          const cleanPhone = phone ? phone.replace(/\D/g, '') : '';
+          if (!cleanPhone) {
+            logs.push(`[${new Date().toISOString()}] Erro: Número de telefone inválido ou ausente. Recebido: ${phone}`);
+            continue;
+          }
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+          const response = await fetch(`${apiUrl}/message/sendText/${instance}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': apiKey
+            },
+            body: JSON.stringify({
+              number: cleanPhone,
+              text: message,
+              linkPreview: true
+            }),
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            logs.push(`[${new Date().toISOString()}] WhatsApp enviado com sucesso.`);
+          } else {
+            const err = await response.text();
+            logs.push(`[${new Date().toISOString()}] Erro ao enviar WhatsApp: ${err}`);
+          }
+        } catch (err: any) {
+          const phoneNum = (phone ? phone.replace(/\D/g, '') : 'desconhecido');
+          if (err.name === 'AbortError') {
+            logs.push(`[${new Date().toISOString()}] Erro: Timeout na Evolution API (5 segundos excedidos) ao contatar ${phoneNum}.`);
+          } else {
+            logs.push(`[${new Date().toISOString()}] Erro de conexão com Evolution API: ${err.message}`);
+          }
         }
+      } else if (node.type === 'http') {
+        logs.push(`[${new Date().toISOString()}] Nó ${node.id} (HTTP): Chamando API externa...`);
       }
-
-      logs.push(`[${new Date().toISOString()}] Fluxo concluído com sucesso`);
-
-      await supabase
-        .from("executions")
-        .insert([{
-          workflow_id: id,
-          status: "completed",
-          logs
-        }]);
-
-      res.status(200).json({ success: true, logs });
-    } catch (error: any) {
-      console.error('Webhook Error:', error);
-      res.status(500).json({ error: "Erro interno no servidor ao processar o webhook", details: error.message });
     }
-  });
 
-  // Global Error Handler
-  app.use((err: any, req: any, res: any, next: any) => {
-    console.error('Uncaught Server Error:', err);
-    res.status(500).json({
-      error: "Internal Server Error",
-      message: err.message,
-      path: req.path
-    });
-  });
+    logs.push(`[${new Date().toISOString()}] Fluxo concluído com sucesso`);
 
-  return app;
-}
+    await supabase
+      .from("executions")
+      .insert([{
+        workflow_id: id,
+        status: "completed",
+        logs
+      }]);
+
+    res.status(200).json({ success: true, logs });
+  } catch (error: any) {
+    console.error('Webhook Error:', error);
+    res.status(500).json({ error: "Erro interno no servidor ao processar o webhook", details: error.message });
+  }
+});
+
+// Global Error Handler
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error('Uncaught Server Error:', err);
+  res.status(500).json({
+    error: "Internal Server Error",
+    message: err.message,
+    path: req.path
+  });
+});
+
+export default app;
